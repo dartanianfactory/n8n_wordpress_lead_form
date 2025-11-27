@@ -24,7 +24,11 @@ function lead_form_load_template($template_name, $data = array()) {
 
 function lead_form_log_error($message) {
     if (WP_DEBUG === true) {
-        error_log('[Lead Form Plugin] ' . $message);
+        if (is_array($message) || is_object($message)) {
+            error_log('[Lead Form Plugin] ' . print_r($message, true));
+        } else {
+            error_log('[Lead Form Plugin] ' . $message);
+        }
     }
 }
 

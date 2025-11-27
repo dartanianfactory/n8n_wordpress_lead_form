@@ -66,7 +66,6 @@
                 <div class="info-card">
                     <h3>Статус n8n</h3>
                     <?php
-                    // Используем глобальную переменную или статический метод
                     $webhook_status = Lead_Form_Admin::check_webhook_status_static();
                     ?>
                     <span class="status-indicator <?php echo $webhook_status ? 'active' : 'inactive'; ?>">

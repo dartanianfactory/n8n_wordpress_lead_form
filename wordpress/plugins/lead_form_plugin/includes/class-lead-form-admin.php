@@ -155,7 +155,13 @@ class Lead_Form_Admin {
             return false;
         }
         
-        $response = wp_remote_get($webhook_url, array('timeout' => 5));
+        $response = wp_remote_get($webhook_url, array(
+            'timeout' => 5,
+            'headers' => array(
+                'User-Agent' => 'WordPress Lead Form Plugin Status Check'
+            )
+        ));
+        
         return !is_wp_error($response);
     }
     
@@ -166,7 +172,13 @@ class Lead_Form_Admin {
             return false;
         }
         
-        $response = wp_remote_get($webhook_url, array('timeout' => 5));
+        $response = wp_remote_get($webhook_url, array(
+            'timeout' => 5,
+            'headers' => array(
+                'User-Agent' => 'WordPress Lead Form Plugin Status Check'
+            )
+        ));
+        
         return !is_wp_error($response);
     }
 }

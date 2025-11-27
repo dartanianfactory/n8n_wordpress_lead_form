@@ -4,7 +4,6 @@ if (!defined('ABSPATH')) {
 }
 
 class Lead_Form_AJAX {
-    
     public function __construct() {
         $this->init_hooks();
     }
@@ -18,8 +17,13 @@ class Lead_Form_AJAX {
     }
     
     public function handle_form_submission() {
-        if (!wp_verify_nonce($_POST['nonce'], 'lead_form_nonce')) {
+        if (ob_get_length()) {
+            ob_clean();
+        }
+
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'lead_form_nonce')) {
             wp_send_json_error(array('form' => 'Security check failed'));
+            wp_die();
         }
         
         $errors = array();
@@ -42,6 +46,7 @@ class Lead_Form_AJAX {
 
         if (!empty($errors)) {
             wp_send_json_error($errors);
+            wp_die();
         }
         
         try {
@@ -50,20 +55,28 @@ class Lead_Form_AJAX {
                 'post_content' => $message,
                 'post_type' => 'applications',
                 'post_status' => 'publish'
-            ));
+            ), true);
             
-            if ($post_id) {
-                $this->save_lead_meta($post_id, $name, $email, $phone, $message);
-                $this->send_to_webhook($post_id, $name, $email, $phone, $message);
-                
-                wp_send_json_success('Заявка успешно отправлена!');
-            } else {
-                wp_send_json_error(array('form' => 'Ошибка при создании заявки'));
+            if (is_wp_error($post_id)) {
+                throw new Exception($post_id->get_error_message());
             }
             
+            $this->save_lead_meta($post_id, $name, $email, $phone, $message);
+            
+            // Пытаемся отправить в вебхук, но не блокируем пользователя
+            $webhook_sent = $this->send_to_webhook($post_id, $name, $email, $phone, $message);
+            
+            if (is_wp_error($webhook_sent)) {
+                lead_form_log_error('Webhook failed: ' . $webhook_sent->get_error_message());
+            }
+            
+            wp_send_json_success('Заявка успешно отправлена!');
+            wp_die();
+            
         } catch (Exception $e) {
-            lead_form_log_error($e->getMessage());
+            lead_form_log_error('Form submission error: ' . $e->getMessage());
             wp_send_json_error(array('form' => 'Произошла ошибка при отправке формы'));
+            wp_die();
         }
     }
     
@@ -78,6 +91,10 @@ class Lead_Form_AJAX {
     private function send_to_webhook($post_id, $name, $email, $phone, $message) {
         $webhook_url = get_option('lead_form_webhook_url', 'http://n8n:5678/webhook/wordpress-lead');
         
+        if (empty($webhook_url)) {
+            return new WP_Error('webhook_url_missing', 'Webhook URL not configured');
+        }
+        
         $data = array(
             'name' => $name,
             'email' => $email,
@@ -89,21 +106,49 @@ class Lead_Form_AJAX {
         );
         
         $response = wp_remote_post($webhook_url, array(
-            'headers' => array('Content-Type' => 'application/json'),
+            'headers' => array(
+                'Content-Type' => 'application/json',
+            ),
             'body' => json_encode($data),
-            'timeout' => 30
+            'timeout' => 5,
+            'blocking' => true
         ));
         
         if (is_wp_error($response)) {
-            lead_form_log_error('Webhook error: ' . $response->get_error_message());
+            update_post_meta($post_id, '_lead_webhook_status', 'failed');
+            return $response;
         }
         
-        return $response;
+        $response_code = wp_remote_retrieve_response_code($response);
+        
+        if ($response_code >= 200 && $response_code < 300) {
+            update_post_meta($post_id, '_lead_webhook_status', 'sent');
+            return true;
+        } else {
+            update_post_meta($post_id, '_lead_webhook_status', 'failed');
+            return new WP_Error('webhook_error', 'Webhook returned error code: ' . $response_code);
+        }
     }
     
     public function test_webhook() {
+        if (ob_get_length()) {
+            ob_clean();
+        }
+        
         if (!current_user_can('manage_options')) {
-            wp_die('Unauthorized');
+            wp_send_json_error('Unauthorized');
+            wp_die();
+        }
+
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'lead_form_admin_nonce')) {
+            wp_send_json_error('Security check failed');
+            wp_die();
+        }
+        
+        $webhook_url = get_option('lead_form_webhook_url', 'http://n8n:5678/webhook/wordpress-lead');
+        if (empty($webhook_url)) {
+            wp_send_json_error('Webhook URL not configured. Current value: ' . $webhook_url);
+            wp_die();
         }
         
         $test_data = array(
@@ -111,44 +156,77 @@ class Lead_Form_AJAX {
             'email' => 'test@example.com',
             'phone' => '+79990001122',
             'message' => 'Test message from admin panel',
-            'wordpress_id' => 0,
+            'wordpress_id' => 999,
             'source' => 'admin_test',
             'timestamp' => current_time('mysql')
         );
         
-        $webhook_url = get_option('lead_form_webhook_url');
-        if (empty($webhook_url)) {
-            wp_send_json_error('Webhook URL not configured');
-        }
+        lead_form_log_error('Testing webhook to: ' . $webhook_url);
+        lead_form_log_error('Test data: ' . print_r($test_data, true));
         
         $response = wp_remote_post($webhook_url, array(
-            'headers' => array('Content-Type' => 'application/json'),
+            'headers' => array(
+                'Content-Type' => 'application/json',
+            ),
             'body' => json_encode($test_data),
-            'timeout' => 10
+            'timeout' => 10,
+            'blocking' => true
         ));
         
         if (is_wp_error($response)) {
-            wp_send_json_error('Webhook error: ' . $response->get_error_message());
-        } else {
-            $response_code = wp_remote_retrieve_response_code($response);
-            wp_send_json_success('Webhook test successful! Response code: ' . $response_code);
+            $error_message = 'Webhook connection error: ' . $response->get_error_message();
+            lead_form_log_error($error_message);
+            wp_send_json_error($error_message);
+            wp_die();
         }
+        
+        $response_code = wp_remote_retrieve_response_code($response);
+        $response_body = wp_remote_retrieve_body($response);
+        
+        lead_form_log_error('Webhook response - Code: ' . $response_code . ' Body: ' . $response_body);
+        
+        if ($response_code >= 200 && $response_code < 300) {
+            wp_send_json_success('Webhook test successful! Response code: ' . $response_code . ' Response: ' . $response_body);
+        } else {
+            $error_message = 'Webhook returned error. Response code: ' . $response_code;
+            if (!empty($response_body)) {
+                $error_message .= ' Response: ' . substr($response_body, 0, 500);
+            }
+            wp_send_json_error($error_message);
+        }
+        
+        wp_die();
     }
     
     public function test_crm() {
+        if (ob_get_length()) {
+            ob_clean();
+        }
+        
         if (!current_user_can('manage_options')) {
-            wp_die('Unauthorized');
+            wp_send_json_error('Unauthorized');
+            wp_die();
         }
         
-        $crm_url = get_option('lead_form_crm_url');
-        $api_key = get_option('lead_form_api_key');
+        if (!wp_verify_nonce($_POST['nonce'] ?? '', 'lead_form_admin_nonce')) {
+            wp_send_json_error('Security check failed');
+            wp_die();
+        }
+
+        $response = wp_remote_get('http://mock-api:3000/', array(
+            'timeout' => 5
+        ));
         
-        if (empty($crm_url) || empty($api_key)) {
-            wp_send_json_error('CRM URL or API Key not configured');
+        if (is_wp_error($response)) {
+            $error_message = 'Mock API connection error: ' . $response->get_error_message();
+            lead_form_log_error($error_message);
+            wp_send_json_error($error_message);
+        } else {
+            $response_code = wp_remote_retrieve_response_code($response);
+            wp_send_json_success('Mock API is accessible. Response code: ' . $response_code);
         }
         
-        // Если что меняем на API EspoCRM
-        wp_send_json_success('CRM connection test - this would test actual EspoCRM API if configured');
+        wp_die();
     }
 }
 ?>

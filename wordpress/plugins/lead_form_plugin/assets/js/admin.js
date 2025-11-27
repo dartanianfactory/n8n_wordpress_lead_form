@@ -48,6 +48,7 @@
             const results = $('#test-results');
             
             button.prop('disabled', true).text('Тестирование...');
+            results.hide().removeClass('test-success test-error');
             
             $.ajax({
                 url: lead_form_admin.ajax_url,
@@ -64,8 +65,9 @@
                         results.removeClass('test-success').addClass('test-error').text(response.data);
                     }
                 },
-                error: () => {
-                    results.show().removeClass('test-success').addClass('test-error').text('Ошибка при тестировании');
+                error: (xhr, status, error) => {
+                    results.show().removeClass('test-success').addClass('test-error')
+                        .text('Ошибка при тестировании: ' + error);
                 },
                 complete: () => {
                     button.prop('disabled', false).text('Протестировать Webhook');
@@ -78,6 +80,7 @@
             const results = $('#test-results');
             
             button.prop('disabled', true).text('Тестирование...');
+            results.hide().removeClass('test-success test-error');
             
             $.ajax({
                 url: lead_form_admin.ajax_url,
@@ -94,8 +97,9 @@
                         results.removeClass('test-success').addClass('test-error').text(response.data);
                     }
                 },
-                error: () => {
-                    results.show().removeClass('test-success').addClass('test-error').text('Ошибка при тестировании CRM');
+                error: (xhr, status, error) => {
+                    results.show().removeClass('test-success').addClass('test-error')
+                        .text('Ошибка при тестировании CRM: ' + error);
                 },
                 complete: () => {
                     button.prop('disabled', false).text('Протестировать CRM');
