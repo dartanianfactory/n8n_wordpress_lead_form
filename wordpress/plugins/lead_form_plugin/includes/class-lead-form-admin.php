@@ -27,8 +27,8 @@ class Lead_Form_Admin {
         
         add_submenu_page(
             'lead-form',
-            'Applications',
-            'Applications',
+            'Leads',
+            'Leads',
             'manage_options',
             'edit.php?post_type=applications'
         );

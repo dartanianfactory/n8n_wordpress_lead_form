@@ -25,14 +25,14 @@ class Lead_Form_Plugin {
         register_post_type('applications',
             array(
                 'labels' => array(
-                    'name' => __('Applications'),
-                    'singular_name' => __('Application'),
-                    'add_new' => __('Add New Application'),
-                    'add_new_item' => __('Add New Application'),
-                    'edit_item' => __('Edit Application'),
-                    'new_item' => __('New Application'),
-                    'view_item' => __('View Application'),
-                    'search_items' => __('Search Applications'),
+                    'name' => __('Leed'),
+                    'singular_name' => __('Leed'),
+                    'add_new' => __('Add New Leed'),
+                    'add_new_item' => __('Add New Leed'),
+                    'edit_item' => __('Edit Leed'),
+                    'new_item' => __('New Leed'),
+                    'view_item' => __('View Leed'),
+                    'search_items' => __('Search Leed'),
                     'not_found' => __('No applications found'),
                     'not_found_in_trash' => __('No applications found in Trash')
                 ),
