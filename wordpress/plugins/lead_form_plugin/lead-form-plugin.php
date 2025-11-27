@@ -218,3 +218,5 @@ class LeadFormPlugin {
 }
 
 new LeadFormPlugin();
+
+?>

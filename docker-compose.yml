@@ -1,35 +1,102 @@
 services:
-  wordpress:
-    build: 
-      context: .
-      dockerfile: docker/Wordpress.Dockerfile
-    ports:
-      - "8000:80"
-    environment:
-      WORDPRESS_DB_HOST: db
-      WORDPRESS_DB_USER: wordpress
-      WORDPRESS_DB_PASSWORD: wordpress
-      WORDPRESS_DB_NAME: wordpress
-      WORDPRESS_CONFIG_EXTRA: |
-        define('WP_DEBUG', true);
-        define('WP_DEBUG_LOG', true);
-    volumes:
-      - wordpress_data:/var/www/html
-      - ./wordpress/plugins:/var/www/html/wp-content/plugins
-    depends_on:
-      - db
-    networks:
-      - app-network
-
   db:
     image: mysql:8.0
+    container_name: mysql
     environment:
       MYSQL_DATABASE: wordpress
       MYSQL_USER: wordpress
       MYSQL_PASSWORD: wordpress
       MYSQL_ROOT_PASSWORD: root
+      MYSQL_DEFAULT_AUTHENTICATION_PLUGIN: mysql_native_password
+    command: --default-authentication-plugin=mysql_native_password
     volumes:
       - db_data:/var/lib/mysql
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      timeout: 20s
+      retries: 10
+      interval: 5s
+      start_period: 30s
+
+  wordpress:
+    image: wordpress:6.0-php8.0
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: mysql
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - wordpress_data:/var/www/html
+      - ./wordpress/plugins:/var/www/html/wp-content/plugins
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  wordpress-setup:
+    image: wordpress:cli-php8.0
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - wordpress_data:/var/www/html
+      - ./wordpress/plugins:/var/www/html/wp-content/plugins
+    environment:
+      WORDPRESS_DB_HOST: mysql
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    user: "0:0"
+    command: >
+      sh -c "
+        echo 'Starting WordPress setup container...' &&
+        
+        echo 'Waiting for database...' &&
+        until mysql -hmysql -uwordpress -pwordpress --default-auth=mysql_native_password -e 'SELECT 1' > /dev/null 2>&1; do
+          echo 'Database not ready, waiting...' &&
+          sleep 5
+        done &&
+        echo 'Database is ready!' &&
+        
+        echo 'Waiting for WordPress...' &&
+        until curl -f http://wordpress:80 > /dev/null 2>&1; do
+          echo 'WordPress not ready, waiting...' &&
+          sleep 5
+        done &&
+        echo 'WordPress is ready!' &&
+
+        echo '⏳ Giving WordPress time to initialize...' &&
+        sleep 10 &&
+
+        echo 'Setting up WordPress directories...' &&
+        cd /var/www/html &&
+        mkdir -p wp-content/uploads &&
+        chown -R www-data:www-data wp-content/uploads &&
+        chmod -R 755 wp-content/uploads &&
+
+        echo 'Installing WordPress core...' &&
+        wp core install --url='http://localhost:8080' --title='Test Site' --admin_user='admin' --admin_password='password' --admin_email='admin@example.com' --skip-email --allow-root &&
+        
+        echo 'Activating lead form plugin...' &&
+        wp plugin activate lead_form_plugin --allow-root &&
+        
+        echo 'Creating contact form page...' &&
+        wp post create --post_type=page --post_title='Contact Form' --post_content='[lead_form]' --post_status=publish --allow-root &&
+        
+        echo ' ' &&
+        echo 'WORDPRESS SETUP COMPLETED!' &&
+        echo 'Frontend: http://localhost:8080' &&
+        echo 'Admin: http://localhost:8080/wp-admin' &&
+        echo 'Username: admin' &&
+        echo 'Password: password' &&
+        echo 'Setup container will now exit.' &&
+        exit 0
+      "
     networks:
       - app-network
 
@@ -41,22 +108,15 @@ services:
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=admin
       - N8N_BASIC_AUTH_PASSWORD=password
-      - N8N_HOST=0.0.0.0
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=http
     volumes:
       - n8n_data:/home/node/.n8n
     networks:
       - app-network
 
   mock-api:
-    build: 
-      context: ./mock-api
-      dockerfile: ../docker/MockApi.Dockerfile
+    build: ./mock-api
     ports:
       - "3000:3000"
-    environment:
-      - PORT=3000
     networks:
       - app-network
 

@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
-COPY server.js .
+COPY ./../../mock-api/server.js .
 
 EXPOSE 3000
 
